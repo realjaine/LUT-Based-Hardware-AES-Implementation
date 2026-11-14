@@ -1,91 +1,128 @@
-# from pathlib import Path
 
-readme = r'''# Power Side-Channel Analysis of LUT-Based Hardware AES
+# Power Side-Channel Analysis of LUT-Based Hardware AES
 
 A hardware security assessment of an unprotected AES-128 implementation on the **NewAE CW305 (Xilinx Artix-7) FPGA**, using **Correlation Power Analysis (CPA)** and **Test Vector Leakage Assessment (TVLA)**.
 
 ## Overview
 
-This project evaluates whether a round-per-cycle, LUT-based AES-128 hardware core leaks information through its power consumption. Power traces were captured with the ChipWhisperer framework and analyzed using two complementary methods:
+This project evaluates whether a round-per-cycle, LUT-based AES-128 hardware core leaks information through its power consumption.
 
-- **Correlation Power Analysis (CPA):** a non-profiled attack using a last-round Hamming-distance leakage model.
-- **Test Vector Leakage Assessment (TVLA):** first- and second-order Welch's t-tests to detect statistically significant leakage independently of a key hypothesis.
+Power traces were captured using the ChipWhisperer framework and analyzed using two complementary methods:
+
+- **Correlation Power Analysis (CPA):** A non-profiled attack using a last-round Hamming-distance leakage model.
+- **Test Vector Leakage Assessment (TVLA):** First- and second-order Welch's t-tests to detect statistically significant leakage independently of a key hypothesis.
 
 The assessment found exploitable leakage in the captured implementation. CPA recovered the final-round key and reversed the AES-128 key schedule to recover the original 128-bit test key. TVLA independently detected substantial first- and second-order leakage.
 
-## Target and experiment
+## Target Platform
 
-| Item | Details |
+| Parameter | Details |
 |---|---|
-| Target board | NewAE CW305 |
+| Target Board | NewAE CW305 |
 | FPGA | Xilinx Artix-7 |
-| Cipher | AES-128 |
-| Architecture | LUT-based, one AES round per clock cycle |
-| Capture framework | ChipWhisperer |
-| Dataset | 2,000 power traces |
-| Samples per trace | 80 (CW-Husky capture configuration described in the report) |
-| Plaintexts | Random plaintexts |
-| Key | Fixed FIPS-197 test key |
-| Main analysis point | Final-round state-register transition |
+| Encryption Algorithm | AES-128 |
+| Architecture | LUT-based, round-per-cycle |
+| Capture Framework | ChipWhisperer |
+| Number of Traces | 2,000 |
+| Samples per Trace | 80 |
+| Plaintext | Random plaintexts |
+| Encryption Key | Fixed FIPS-197 test key |
+| Attack Target | Final-round state-register transition |
 
-The fixed test key used for the experiment was:
+### Experimental AES Key
 
-```text
-2B7E151628AED2A6ABF7158809CF4F3C
-```
+`2B7E151628AED2A6ABF7158809CF4F3C`
 
-This is a published AES test key used for experimental validation, not a production secret.
+This is a publicly known FIPS-197 reference test key used for experimental validation.
 
 ## Methodology
 
-### 1. Power-trace capture
+### 1. Power Trace Capture
 
-The ChipWhisperer capture setup synchronizes the ADC to the FPGA clock using `extclk_x4`. The report describes a 10 MHz PLL1 output, a rising-edge trigger on `tio4`, and a target core voltage of 1.0 V.
+The ChipWhisperer capture setup synchronizes the ADC to the FPGA clock using `extclk_x4`.
 
-For each capture, the experiment generates a plaintext, triggers AES encryption, records the power waveform and ciphertext, and checks the DUT ciphertext against an independent AES-ECB software reference.
+The experiment uses:
+- FPGA PLL1 output frequency: 10 MHz
+- ADC trigger mode: Rising edge
+- Trigger pin: TIO4
+- Target supply voltage: 1.0 V
+- Number of captured traces: 2,000
+
+For each capture, a random plaintext is generated, AES encryption is triggered, and the power waveform and ciphertext are recorded.
+
+The DUT ciphertext is verified against an independent software AES-ECB reference implementation.
 
 ### 2. Correlation Power Analysis (CPA)
 
-The attack targets the Hamming distance between the AES state before and after the final-round transition. Since the final AES round omits MixColumns, each output byte can be attacked independently for each of the 16 last-round key bytes.
+The attack targets the Hamming distance between the AES state before and after the final-round transition.
 
-The analysis evaluates candidate key-byte hypotheses and correlates predicted Hamming-distance leakage with measured power samples. The recovered last-round key is then rolled back through the AES-128 key schedule to obtain the original key.
+Since the final AES round does not contain MixColumns, each output byte can be attacked independently for each of the 16 last-round key bytes.
+
+The attack:
+1. Generates candidate key-byte hypotheses.
+2. Computes hypothetical Hamming-distance leakage.
+3. Calculates Pearson correlation between predicted leakage and measured power traces.
+4. Identifies the most likely last-round key byte.
+5. Reverses the AES-128 key schedule to recover the original encryption key.
 
 ### 3. Test Vector Leakage Assessment (TVLA)
 
-Welch's t-test is applied sample-by-sample to compare trace populations. The report uses the conventional decision threshold:
+TVLA uses Welch's t-test to identify statistically significant power leakage.
 
-```text
-|t| > 4.5
-```
+The conventional leakage detection threshold is:
 
-- **First-order TVLA:** applied to raw power samples.
-- **Second-order TVLA:** applied to mean-centered, squared power samples.
+`|t| > 4.5`
 
-TVLA does not require guessing the AES key; it provides a statistical test for data-dependent leakage.
+Two statistical orders were evaluated:
 
-## Results
+- **First-Order TVLA:** Applied directly to raw power samples.
+- **Second-Order TVLA:** Applied to mean-centered, squared power samples.
+
+TVLA provides an independent statistical assessment without requiring a specific key hypothesis.
+
+## Experimental Results
 
 | Metric | Result |
 |---|---:|
-| Number of traces | 2,000 |
-| CPA maximum absolute correlation | Approximately 0.235 at sample 57 |
-| Recovered key verification | Matched the known test key |
-| First-order TVLA maximum \|t\| | 64.15 |
-| First-order leaking samples | 52 / 80 (65%) |
-| Second-order TVLA maximum \|t\| | 28.95 |
-| Second-order leaking samples | 47 / 80 (59%) |
-| TVLA threshold | \|t\| > 4.5 |
+| Number of Captured Traces | 2,000 |
+| CPA Maximum Correlation | ≈ 0.235 |
+| CPA Peak Sample | ≈ 57 |
+| Recovered Key Verification | Successful |
+| First-Order TVLA Maximum | 64.15 |
+| First-Order Leaking Samples | 52 / 80 (65%) |
+| Second-Order TVLA Maximum | 28.95 |
+| Second-Order Leaking Samples | 47 / 80 (59%) |
+| TVLA Threshold | 4.5 |
 
-### Interpretation
+### CPA Results
 
-- The CPA correlation peak around sample 57 indicates a time-localized, key-dependent leakage event around the final-round state transition.
-- First-order TVLA substantially exceeds the 4.5 threshold, with 52 of 80 samples flagged.
-- Second-order TVLA also exceeds the threshold, with 47 of 80 samples flagged.
-- Together, the results show that the assessed unprotected implementation is vulnerable to power side-channel analysis under the experimental conditions.
+The CPA leakage profile shows a prominent correlation peak around sample 57, reaching approximately 0.235.
 
-## Repository contents
+This indicates a strong, time-localized, key-dependent leakage event corresponding to the final-round state transition.
 
-The report identifies the following code and data artifacts. Add the corresponding files to the repository when publishing the complete experiment:
+The recovered last-round key was reversed through the AES-128 key schedule, successfully matching the original test key.
+
+### First-Order TVLA Results
+
+- Maximum absolute t-statistic: 64.15
+- Leaking samples: 52 out of 80
+- Percentage of leaking samples: 65%
+- Detection threshold: |t| > 4.5
+
+The results demonstrate substantial first-order power leakage.
+
+### Second-Order TVLA Results
+
+- Maximum absolute t-statistic: 28.95
+- Leaking samples: 47 out of 80
+- Percentage of leaking samples: 59%
+- Detection threshold: |t| > 4.5
+
+The results demonstrate that statistically significant leakage is also present in higher-order power measurements.
+
+## Repository Structure
+
+The report identifies the following code and dataset artifacts:
 
 ```text
 .
@@ -98,58 +135,63 @@ The report identifies the following code and data artifacts. Add the correspondi
 └── AES_HW_CW305_Full_Dataset_LUT.xlsx
 ```
 
-**Important:** In the report, `aes_core_lut.v` and `aes_sbox_lut.v` are explicitly described as placeholders. Replace them with the actual RTL sources before presenting them as a working implementation. The README does not imply that these files, the notebooks, or the dataset are already present in the repository.
+**Note:** The report explicitly identifies `aes_core_lut.v` and `aes_sbox_lut.v` as placeholders. Actual RTL source files must be added before claiming that the complete hardware implementation is available.
 
-## Software and tools
+## Software Requirements
 
-The report lists the following software stack:
+The experimental environment uses:
 
 - Python 3.9
-- ChipWhisperer (`chipwhisperer`)
-- ChipWhisperer Analyzer (`chipwhisperer.analyzer`)
+- ChipWhisperer
+- ChipWhisperer Analyzer
 - NumPy
 - SciPy
-- PyCryptodome (`Crypto.Cipher.AES`)
+- PyCryptodome
 - Bokeh
 - tqdm
 - Jupyter Notebook
 
-Install the Python dependencies in an environment compatible with the ChipWhisperer hardware setup. A typical starting command is:
+Install the supporting Python dependencies:
 
 ```bash
 python -m pip install numpy scipy pycryptodome bokeh tqdm jupyter
 ```
 
-Install ChipWhisperer using the official installation instructions for your operating system and hardware. The capture notebook requires a compatible ChipWhisperer capture device and a connected CW305 target; the analysis can be adapted to run on previously saved traces.
+ChipWhisperer should be installed separately using its official documentation:
 
-## Reproducing the analysis
+https://chipwhisperer.readthedocs.io/
 
-1. Connect and configure the CW305 target and a compatible ChipWhisperer capture device.
-2. Open `capture_hw_aes.ipynb` and configure the target, scope, clock, and trigger.
-3. Capture the traces and save the resulting ChipWhisperer project or exported dataset.
-4. Open `cpa_attack.ipynb` and run the last-round CPA and AES key-schedule reversal.
-5. Run `tvla_analysis.py` on the captured trace groups to calculate first- and second-order Welch's t-statistics.
-6. Compare the generated leakage plots and numerical results with the results summarized above.
+## Reproducing the Experiment
 
-Exact paths, project filenames, and data-loading code depend on the files included in the repository and may need to be configured before running.
+1. Connect the CW305 target board and a compatible ChipWhisperer capture device.
+2. Open `capture_hw_aes.ipynb`.
+3. Configure the target, ADC, PLL and trigger settings.
+4. Capture the power traces and save the resulting dataset.
+5. Open `cpa_attack.ipynb` to perform the CPA attack.
+6. Execute `tvla_analysis.py` to calculate first- and second-order Welch's t-statistics.
+7. Generate the leakage plots and compare the results with the experimental findings.
+
+Exact file paths, project filenames and data-loading configurations may need adjustment depending on the repository contents.
 
 ## Limitations
 
 - The assessment uses a fixed, publicly known FIPS-197 test key.
-- The reported dataset contains 2,000 traces of 80 samples each, focused on the final-round transition.
-- Earlier AES rounds were not separately characterized in this report.
-- The report does not include a measurement-noise sensitivity sweep or an EM side-channel assessment.
-- The report describes non-specific fixed-vs-random TVLA; other TVLA configurations could provide complementary evidence.
-- The RTL source files listed in the report are placeholders and must not be treated as complete source code.
+- The dataset contains 2,000 traces with 80 samples each.
+- The analysis focuses on the final AES-round transition.
+- Leakage from earlier AES rounds was not separately characterized.
+- No measurement-noise sensitivity analysis was performed.
+- No electromagnetic side-channel assessment was conducted.
+- The RTL files listed in the report are placeholders.
 
-## Future work
+## Future Work
 
-Potential extensions identified in the report include:
+Potential extensions include:
 
-- Evaluate masked and hiding-based AES implementations against both first- and second-order leakage.
-- Explore profiled attacks, including template attacks and deep-learning-based side-channel analysis.
-- Perform electromagnetic side-channel measurements.
-- Sweep the number of traces to estimate the minimum trace count needed for reliable key recovery.
+- Implementing masked AES hardware to evaluate resistance against first- and second-order leakage.
+- Exploring hiding-based countermeasures.
+- Evaluating template attacks and deep-learning-based side-channel analysis.
+- Performing electromagnetic side-channel measurements.
+- Conducting trace-count sensitivity analysis to determine the minimum number of traces required for reliable key recovery.
 
 ## References
 
@@ -157,14 +199,10 @@ Potential extensions identified in the report include:
 2. NewAE Technology Inc., [NAE0010: CW305 AES Side-Channel Attack Whitepaper](http://media.newae.com/appnotes/NAE0010_Whitepaper_CW305_AES_SCA_Attack.pdf).
 3. NewAE Technology Inc., [Tutorial CW305-1: Building a Project](http://wiki.newae.com/Tutorial_CW305-1_Building_a_Project).
 4. NIST, [FIPS 197: Advanced Encryption Standard (AES)](https://csrc.nist.gov/pubs/fips/197/final).
-5. E. Brier, C. Clavier, and F. Olivier, “Correlation Power Analysis with a Leakage Model,” CHES 2004.
-6. G. Goodwill, B. Jun, J. Jaffe, and P. Rohatgi, “A Testing Methodology for Side-Channel Resistance Validation,” NIST Non-Invasive Attack Testing Workshop, 2011.
-7. P. Kocher, J. Jaffe, and B. Jun, “Differential Power Analysis,” CRYPTO 1999.
+5. E. Brier, C. Clavier and F. Olivier, "Correlation Power Analysis with a Leakage Model," CHES 2004.
+6. G. Goodwill, B. Jun, J. Jaffe and P. Rohatgi, "A Testing Methodology for Side-Channel Resistance Validation," NIST Non-Invasive Attack Testing Workshop, 2011.
+7. P. Kocher, J. Jaffe and B. Jun, "Differential Power Analysis," CRYPTO 1999.
 
 ---
 
-**Project scope:** This repository documents an authorized laboratory evaluation of side-channel leakage in an FPGA AES implementation. Results apply to the tested hardware, capture setup, and dataset; they should not be generalized to all AES implementations or FPGA devices.
-'''
-path = Path("/mnt/data/README.md")
-path.write_text(readme, encoding="utf-8")
-print(f"Created {path} ({path.stat().st_size} bytes)")
+**Project Scope:** This repository documents an authorized laboratory evaluation of side-channel leakage in an FPGA-based AES implementation. The results apply to the tested hardware, capture configuration and dataset and should not be generalized to all AES implementations or FPGA devices.
